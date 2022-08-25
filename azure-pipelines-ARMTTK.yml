@@ -1,0 +1,16 @@
+trigger:
+- master
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+- task: RunARMTTKTests@1
+  inputs:
+    templatelocation: '$(System.DefaultWorkingDirectory)\*'
+    resultLocation: '$(System.DefaultWorkingDirectory)\Test Results'
+- task: PublishTestResults@2
+  inputs:
+    testResultsFormat: 'NUnit'
+    testResultsFiles: '$(System.DefaultWorkingDirectory)\Test Results\*-armttk.xml'
+  condition: always()

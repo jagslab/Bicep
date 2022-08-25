@@ -1,0 +1,30 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+- script: echo Hello, world!
+  displayName: 'Run a one-line script'
+
+- script: |
+    echo Add other tasks to build, test, and deploy your project.
+    echo See https://aka.ms/yaml
+  displayName: 'Run a multi-line script'
+- task: AzureResourceManagerTemplateDeployment@3
+  inputs:
+    deploymentScope: 'Resource Group'
+    azureResourceManagerConnection: 'service-jagslab'
+    subscriptionId: '0e9da35c-07a7-4468-98f4-03fbeb4db963'
+    action: 'Create Or Update Resource Group'
+    resourceGroupName: 'wintest'
+    location: 'North Europe'
+    templateLocation: 'Linked artifact'
+    csmFile: '.\main.bicep'
+    deploymentMode: 'Incremental'

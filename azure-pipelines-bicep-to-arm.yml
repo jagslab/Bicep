@@ -1,0 +1,94 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- master
+
+name: Deploy Bicep files
+
+variables:
+  vmImageName: 'windows-latest'
+
+  azureServiceConnection: 'service-jagslab'
+  resourceGroupName: 'rg-sql-test-neu-03'
+  location: 'northeurope'
+  templateFile: './main.bicep'
+pool:
+  vmImage: $(vmImageName)
+
+steps:
+# - task: RunARMTTKTests@1
+#   inputs:
+#     templatelocation: '$(System.DefaultWorkingDirectory)\*'
+#     resultLocation: '$(System.DefaultWorkingDirectory)'
+#     allTemplatesMain: false
+
+- bash: az bicep build --file '.\main.bicep'
+  displayName: 'Compile Bicep to ARM'
+
+- task: AzureResourceManagerTemplateDeployment@3
+  inputs:
+    deploymentScope: 'Resource Group'
+    azureResourceManagerConnection: 'service-jagslab'
+    subscriptionId: '0e9da35c-07a7-4468-98f4-03fbeb4db963'
+    action: 'Create Or Update Resource Group'
+    resourceGroupName:  $(resourceGroupName)
+    location: $(location)
+    templateLocation: 'Linked artifact'
+    csmFile: './main.json'
+    deploymentMode: 'Incremental'
+    deploymentOutputs: 'resourceGroupDeploymentOutputs'
+
+- pwsh: |
+   $outputs = ConvertFrom-Json '$(resourceGroupDeploymentOutputs)'
+    foreach ($output in $outputs.PSObject.Properties) {
+        Write-Host "##vso[task.setvariable variable=RGDO_$($output.Name)]$($output.Value.value)"
+    }
+  displayName: 'Turn ARM outputs into variables'  
+
+- task: AzurePowerShell@5
+  displayName: Assign Managed ID to Directory Readers AAD Group
+  inputs:
+    azureSubscription: 'service-jagslab'
+    azurePowerShellVersion: LatestVersion
+    errorActionPreference: 'continue'
+    ScriptType: 'InlineScript'
+    Inline: |
+     Install-Module -Name AzureAD -AllowClobber -Scope CurrentUser -Force
+     $context = [Microsoft.Azure.Commands.Common.Authentication.Abstractions.AzureRmProfileProvider]::Instance.Profile.DefaultContext
+     $graphToken = [Microsoft.Azure.Commands.Common.Authentication.AzureSession]::Instance.AuthenticationFactory.Authenticate($context.Account, $context.Environment, $context.Tenant.Id.ToString(), $null, [Microsoft.Azure.Commands.Common.Authentication.ShowDialog]::Never, $null, "https://graph.microsoft.com").AccessToken
+     $aadToken = [Microsoft.Azure.Commands.Common.Authentication.AzureSession]::Instance.AuthenticationFactory.Authenticate($context.Account, $context.Environment, $context.Tenant.Id.ToString(), $null, [Microsoft.Azure.Commands.Common.Authentication.ShowDialog]::Never, $null, "https://graph.windows.net").AccessToken
+     Connect-AzureAD -AadAccessToken $aadToken -AccountId $context.Account.Id -TenantId $context.tenant.id
+     Add-AzureADGroupMember -ObjectId "d5e8a4ea-c621-4fac-a9e1-dd2055d8fb51" -RefObjectId $(resourceGroupDeploymentOutputs.osqlServerIdentity.value)
+
+- task: AzurePowerShell@5
+  displayName: Assign the DB Roles
+  inputs:
+   azureSubscription: service-jagslab
+   azurePowerShellVersion: LatestVersion
+   scriptType: inlinescript
+   Inline: |
+    $token2 = (Get-AzAccessToken -ResourceUrl https://database.windows.net).Token
+    Install-Module -Name SqlServer -AllowClobber -AllowPrerelease -Scope CurrentUser -Force                      
+    Import-module sqlserver                       
+    write-host $token2
+    $query = 'CREATE USER [$(resourceGroupDeploymentOutputs.oappname.value)] FROM EXTERNAL PROVIDER WITH OBJECT_ID = [$(resourceGroupDeploymentOutputs.oappidentity.value)] ; ALTER ROLE db_datawriter ADD MEMBER [$(resourceGroupDeploymentOutputs.oappname.value)];ALTER ROLE db_datareader ADD MEMBER [$(resourceGroupDeploymentOutputs.oappname.value)];'
+    write-host $query
+    Invoke-SqlCmd -ServerInstance $(resourceGroupDeploymentOutputs.osqlServerNameFQDN.value) -Database $(resourceGroupDeploymentOutputs.osqlServerDbName.value) -AccessToken "$token2" -Query "$query" -Verbose
+
+
+                        # $SQLServerName = "$(sqlName)"   
+                        # $DatabaseName = "$(sqlDbName)"    
+                        # $conn = New-Object System.Data.SqlClient.SQLConnection 
+                        # $conn.ConnectionString = "Data Source=$SQLServerName.database.windows.net;Initial Catalog=$DatabaseName;Connect Timeout=30"
+                        # $conn.AccessToken = $token
+                        # $conn.Open() 
+                        # $ddlstmt = 'CREATE USER [$apiAppName] FROM EXTERNAL PROVIDER;'
+                        # $ddlstmt
+                        # $command = New-Object -TypeName System.Data.SqlClient.SqlCommand($ddlstmt, $conn)       
+                        # $command.ExecuteNonQuery()
+                        # $conn.Close()
+
+

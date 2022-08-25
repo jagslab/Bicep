@@ -1,0 +1,37 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- master
+
+name: Deploy Bicep files
+
+variables:
+  vmImageName: 'windows-latest'
+
+  azureServiceConnection: 'service-jagslab'
+  location: 'northeurope'
+  templateFile: './main.bicep'
+  subscription: '0e9da35c-07a7-4468-98f4-03fbeb4db963'
+pool:
+  vmImage: $(vmImageName)
+
+steps:
+- task: RunARMTTKTests@1
+  inputs:
+    templatelocation: '$(System.DefaultWorkingDirectory)\*'
+    resultLocation: '$(System.DefaultWorkingDirectory)'
+    allTemplatesMain: false
+    cliOutputResults: true
+- task: AzureCLI@2
+  inputs:
+    targetScope: Subscription
+    azureSubscription: $(azureServiceConnection)
+    workingDirectory: 
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      az --version
+      az deployment sub create --location $(location) --template-file $(templateFile)
