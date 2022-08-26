@@ -19,6 +19,7 @@ jobs:
       with:
         subscriptionId: ${{ secrets.AZURE_SUBSCRIPTION }}
         resourceGroupName: 'rg-agw-test-neu-01'
-        template: ./destroy.bicep --complete
+        template: ./destroy.bicep
+        arguments: --complete
         #parameters: 'storagePrefix=jagslab storageSKU=Standard_LRS'
         failOnStdErr: false
